@@ -632,7 +632,7 @@ class PICNNAbstractClass(torch.nn.Module):
 
 # noinspection PyPep8Naming,PyTypeChecker
 class PICNN(PICNNAbstractClass):
-    def __init__(self, dim=2, dimh=16, dimc=2, num_hidden_layers=2, PosLin=PosLinear,
+    def __init__(self, dim=2, dimh=16, dimc=2, num_hidden_layers=2, PosLin=PosLinear2,
                  symm_act_first=False, softplus_type='gaussian_softplus', zero_softplus=False):
         super(PICNN, self).__init__()
         # with data dependent init
@@ -643,7 +643,7 @@ class PICNN(PICNNAbstractClass):
 
         # data path
         Wzs = list()
-        Wzs.append(nn.Linear(dim, dimh))
+        Wzs.append(spectral_norm(nn.Linear(dim, dimh)))
         for _ in range(num_hidden_layers - 1):
             Wzs.append(PosLin(dimh, dimh, bias=True))
         Wzs.append(PosLin(dimh, 1, bias=False))
@@ -652,36 +652,30 @@ class PICNN(PICNNAbstractClass):
         # skip data
         Wxs = list()
         for _ in range(num_hidden_layers - 1):
-            Wxs.append(nn.Linear(dim, dimh))
-        Wxs.append(nn.Linear(dim, 1, bias=False))
+            Wxs.append(spectral_norm(nn.Linear(dim, dimh)))
+        Wxs.append(spectral_norm(nn.Linear(dim, 1, bias=False)))
         self.Wxs = torch.nn.ModuleList(Wxs)
 
         # context path
         Wcs = list()
-        Wcs.append(nn.Linear(dimc, dimh))
+        Wcs.append(spectral_norm(nn.Linear(dimc, dimh)))
         self.Wcs = torch.nn.ModuleList(Wcs)
 
         Wczs = list()
         for _ in range(num_hidden_layers - 1):
-            Wczs.append(nn.Linear(dimh, dimh))
-        Wczs.append(nn.Linear(dimh, dimh, bias=True))
+            Wczs.append(spectral_norm(nn.Linear(dimh, dimh)))
+        Wczs.append(spectral_norm(nn.Linear(dimh, dimh, bias=True)))
         self.Wczs = torch.nn.ModuleList(Wczs)
-        for Wcz in self.Wczs:
-            Wcz.weight.data.zero_()
-            Wcz.bias.data.zero_()
 
         Wcxs = list()
         for _ in range(num_hidden_layers - 1):
-            Wcxs.append(nn.Linear(dimh, dim))
-        Wcxs.append(nn.Linear(dimh, dim, bias=True))
+            Wcxs.append(spectral_norm(nn.Linear(dimh, dim)))
+        Wcxs.append(spectral_norm(nn.Linear(dimh, dim, bias=True)))
         self.Wcxs = torch.nn.ModuleList(Wcxs)
-        for Wcx in self.Wcxs:
-            Wcx.weight.data.zero_()
-            Wcx.bias.data.zero_()
 
         Wccs = list()
         for _ in range(num_hidden_layers - 1):
-            Wccs.append(nn.Linear(dimh, dimh))
+            Wccs.append(spectral_norm(nn.Linear(dimh, dimh)))
         self.Wccs = torch.nn.ModuleList(Wccs)
 
         self.actnorm0 = ActNormNoLogdet(dimh)
@@ -698,6 +692,7 @@ class PICNN(PICNNAbstractClass):
             z = symm_softplus(self.actnorm0(self.Wzs[0](x)), self.act)
         else:
             z = self.act(self.actnorm0(self.Wzs[0](x)))
+
         c = self.act_c(self.actnormc(self.Wcs[0](c)))
         for Wz, Wx, Wcz, Wcx, Wcc, actnorm in zip(
                 self.Wzs[1:-1], self.Wxs[:-1],
