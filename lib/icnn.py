@@ -5,8 +5,9 @@ import torch.nn.init as init
 # noinspection PyPep8Naming
 import torch.nn.functional as F
 import numpy as np
-from lib.flows.flows import ActNormNoLogdet
-from lib.functional import log_sum_exp
+from icnn_lib.flows.flows import ActNormNoLogdet
+from icnn_lib.functional import log_sum_exp
+import torch.nn.utils.spectral_norm as spectral_norm
 
 
 def symm_softplus(x, softplus_=torch.nn.functional.softplus):
@@ -100,6 +101,53 @@ class PosConv2d(torch.nn.Conv2d):
 
 
 # noinspection PyPep8Naming,PyTypeChecker
+class ICNN3(torch.nn.Module):
+    def __init__(self, dim=2, dimh=16, num_hidden_layers=2, symm_act_first=False,
+                 softplus_type='softplus', zero_softplus=False):
+        super(ICNN3, self).__init__()
+        # with data dependent init
+
+        self.act = Softplus(softplus_type=softplus_type, zero_softplus=zero_softplus)
+        self.symm_act_first = symm_act_first
+
+        Wzs = list()
+        Wzs.append(nn.Linear(dim, dimh))
+        for _ in range(num_hidden_layers - 1):
+            Wzs.append(PosLinear(dimh, dimh // 2, bias=True))
+        Wzs.append(PosLinear(dimh, 1, bias=False))
+        self.Wzs = torch.nn.ModuleList(Wzs)
+
+        Wxs = list()
+        for _ in range(num_hidden_layers - 1):
+            Wxs.append(nn.Linear(dim, dimh // 2))
+        Wxs.append(nn.Linear(dim, 1, bias=False))
+        self.Wxs = torch.nn.ModuleList(Wxs)
+
+        Wx2s = list()
+        for _ in range(num_hidden_layers - 1):
+            Wx2s.append(nn.Linear(dim, dimh // 2))
+        self.Wx2s = torch.nn.ModuleList(Wx2s)
+
+        actnorms = list()
+        for _ in range(num_hidden_layers - 1):
+            actnorms.append(ActNormNoLogdet(dimh // 2))
+        actnorms.append(ActNormNoLogdet(1))
+        actnorms[-1].b.requires_grad_(False)
+        self.actnorms = torch.nn.ModuleList(actnorms)
+
+    def forward(self, x):
+        if self.symm_act_first:
+            z = symm_softplus(self.Wzs[0](x), self.act)
+        else:
+            z = self.act(self.Wzs[0](x))
+        for Wz, Wx, Wx2, actnorm in zip(self.Wzs[1:-1], self.Wxs[:-1], self.Wx2s[:], self.actnorms[:-1]):
+            z = self.act(actnorm(Wz(z) + Wx(x)))
+            aug = Wx2(x)
+            aug = symm_softplus(aug, self.act) if self.symm_act_first else self.act(aug)
+            z = torch.cat([z, aug], 1)
+        return self.actnorms[-1](self.Wzs[-1](z) + self.Wxs[-1](x))
+
+# noinspection PyPep8Naming,PyTypeChecker
 class ICNN(torch.nn.Module):
     def __init__(self, dim=2, dimh=16, num_hidden_layers=1):
         super(ICNN, self).__init__()
@@ -165,52 +213,7 @@ class ICNN2(torch.nn.Module):
         return self.actnorms[-1](self.Wzs[-1](z) + self.Wxs[-1](x))
 
 
-# noinspection PyPep8Naming,PyTypeChecker
-class ICNN3(torch.nn.Module):
-    def __init__(self, dim=2, dimh=16, num_hidden_layers=2, symm_act_first=False,
-                 softplus_type='softplus', zero_softplus=False):
-        super(ICNN3, self).__init__()
-        # with data dependent init
 
-        self.act = Softplus(softplus_type=softplus_type, zero_softplus=zero_softplus)
-        self.symm_act_first = symm_act_first
-
-        Wzs = list()
-        Wzs.append(nn.Linear(dim, dimh))
-        for _ in range(num_hidden_layers - 1):
-            Wzs.append(PosLinear(dimh, dimh // 2, bias=True))
-        Wzs.append(PosLinear(dimh, 1, bias=False))
-        self.Wzs = torch.nn.ModuleList(Wzs)
-
-        Wxs = list()
-        for _ in range(num_hidden_layers - 1):
-            Wxs.append(nn.Linear(dim, dimh // 2))
-        Wxs.append(nn.Linear(dim, 1, bias=False))
-        self.Wxs = torch.nn.ModuleList(Wxs)
-
-        Wx2s = list()
-        for _ in range(num_hidden_layers - 1):
-            Wx2s.append(nn.Linear(dim, dimh // 2))
-        self.Wx2s = torch.nn.ModuleList(Wx2s)
-
-        actnorms = list()
-        for _ in range(num_hidden_layers - 1):
-            actnorms.append(ActNormNoLogdet(dimh // 2))
-        actnorms.append(ActNormNoLogdet(1))
-        actnorms[-1].b.requires_grad_(False)
-        self.actnorms = torch.nn.ModuleList(actnorms)
-
-    def forward(self, x):
-        if self.symm_act_first:
-            z = symm_softplus(self.Wzs[0](x), self.act)
-        else:
-            z = self.act(self.Wzs[0](x))
-        for Wz, Wx, Wx2, actnorm in zip(self.Wzs[1:-1], self.Wxs[:-1], self.Wx2s[:], self.actnorms[:-1]):
-            z = self.act(actnorm(Wz(z) + Wx(x)))
-            aug = Wx2(x)
-            aug = symm_softplus(aug, self.act) if self.symm_act_first else self.act(aug)
-            z = torch.cat([z, aug], 1)
-        return self.actnorms[-1](self.Wzs[-1](z) + self.Wxs[-1](x))
 
 
 # noinspection PyPep8Naming,PyUnusedLocal
@@ -628,6 +631,91 @@ class PICNNAbstractClass(torch.nn.Module):
         super().__init_subclass__(**kwargs)
         cls.icnns[cls.__name__] = cls
         cls.icnn_names.append(cls.__name__)
+
+
+# noinspection PyPep8Naming,PyTypeChecker
+class PICNN_SN(PICNNAbstractClass):
+    def __init__(self, dim=2, dimh=16, dimc=2, num_hidden_layers=2, PosLin=PosLinear2,
+                 symm_act_first=False, softplus_type='gaussian_softplus', zero_softplus=False):
+        super(PICNN_SN, self).__init__()
+        # with data dependent init
+
+        self.act = Softplus(softplus_type=softplus_type, zero_softplus=zero_softplus)
+        self.act_c = nn.ELU()
+        self.symm_act_first = symm_act_first
+
+        # data path
+        Wzs = list()
+        Wzs.append(spectral_norm(nn.Linear(dim, dimh)))
+        for _ in range(num_hidden_layers - 1):
+            Wzs.append(PosLin(dimh, dimh, bias=True))
+        Wzs.append(PosLin(dimh, 1, bias=False))
+        self.Wzs = torch.nn.ModuleList(Wzs)
+
+        # skip data
+        Wxs = list()
+        for _ in range(num_hidden_layers - 1):
+            Wxs.append(spectral_norm(nn.Linear(dim, dimh)))
+        Wxs.append(spectral_norm(nn.Linear(dim, 1, bias=False)))
+        self.Wxs = torch.nn.ModuleList(Wxs)
+
+        # context path
+        Wcs = list()
+        Wcs.append(spectral_norm(nn.Linear(dimc, dimh)))
+        self.Wcs = torch.nn.ModuleList(Wcs)
+
+        Wczs = list()
+        for _ in range(num_hidden_layers - 1):
+            Wczs.append(spectral_norm(nn.Linear(dimh, dimh)))
+        Wczs.append(spectral_norm(nn.Linear(dimh, dimh, bias=True)))
+        self.Wczs = torch.nn.ModuleList(Wczs)
+        # for Wcz in self.Wczs:
+        #     Wcz.weight.data.zero_()
+        #     Wcz.bias.data.zero_()
+
+        Wcxs = list()
+        for _ in range(num_hidden_layers - 1):
+            Wcxs.append(spectral_norm(nn.Linear(dimh, dim)))
+        Wcxs.append(spectral_norm(nn.Linear(dimh, dim, bias=True)))
+        self.Wcxs = torch.nn.ModuleList(Wcxs)
+        # for Wcx in self.Wcxs:
+        #     Wcx.weight.data.zero_()
+        #     Wcx.bias.data.zero_()
+
+        Wccs = list()
+        for _ in range(num_hidden_layers - 1):
+            Wccs.append(spectral_norm(nn.Linear(dimh, dimh)))
+        self.Wccs = torch.nn.ModuleList(Wccs)
+
+        self.actnorm0 = ActNormNoLogdet(dimh)
+        actnorms = list()
+        for _ in range(num_hidden_layers - 1):
+            actnorms.append(ActNormNoLogdet(dimh))
+        actnorms.append(ActNormNoLogdet(1))
+        self.actnorms = torch.nn.ModuleList(actnorms)
+
+        self.actnormc = ActNormNoLogdet(dimh)
+
+    def forward(self, x, c):
+        if self.symm_act_first:
+            z = symm_softplus(self.actnorm0(self.Wzs[0](x)), self.act)
+        else:
+            z = self.act(self.actnorm0(self.Wzs[0](x)))
+
+        c = self.act_c(self.actnormc(self.Wcs[0](c)))
+        for Wz, Wx, Wcz, Wcx, Wcc, actnorm in zip(
+                self.Wzs[1:-1], self.Wxs[:-1],
+                self.Wczs[:-1], self.Wcxs[:-1], self.Wccs,
+                self.actnorms[:-1]):
+            cz = softplus(Wcz(c) + np.exp(np.log(1.0) - 1))
+            cx = Wcx(c) + 1.0
+            z = self.act(actnorm(Wz(z * cz) + Wx(x * cx) + Wcc(c)))
+
+        cz = softplus(self.Wczs[-1](c) + np.log(np.exp(1.0) - 1))
+        cx = self.Wcxs[-1](c) + 1.0
+        return self.actnorms[-1](
+            self.Wzs[-1](z * cz) + self.Wxs[-1](x * cx)
+        )
 
 
 # noinspection PyPep8Naming,PyTypeChecker

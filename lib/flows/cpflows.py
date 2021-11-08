@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as nnF
 from functools import partial
 import numpy as np
-from lib.logdet_estimators import stochastic_lanczos_quadrature, \
+from icnn_lib.logdet_estimators import stochastic_lanczos_quadrature, \
     unbiased_logdet, stochastic_logdet_gradient_estimator, CG_ITERS_TRACER
 import gc
 import warnings
@@ -50,7 +50,7 @@ class DeepConvexFlow(torch.nn.Module):
     """
 
     def __init__(self, icnn, dim, unbiased=False, no_bruteforce=True, m1=10, m2=None, rtol=0.0, atol=1e-3,
-                 bias_w1=0.0, trainable_w0=True):
+                 bias_w1=0.0, trainable_w0=True, no_identity_term=False):
         super(DeepConvexFlow, self).__init__()
         if m2 is None:
             m2 = dim
@@ -62,6 +62,7 @@ class DeepConvexFlow(torch.nn.Module):
         self.w0 = torch.nn.Parameter(torch.log(torch.exp(torch.ones(1)) - 1), requires_grad=trainable_w0)
         self.w1 = torch.nn.Parameter(torch.zeros(1) + bias_w1)
         self.bias_w1 = bias_w1
+        self.no_identity_term = no_identity_term
 
         self.m1, self.m2 = m1, m2
         self.stochastic_estimate_fn = unbiased_logdet if unbiased else \
@@ -75,7 +76,11 @@ class DeepConvexFlow(torch.nn.Module):
             icnn = self.icnn(x)
         else:
             icnn = self.icnn(x, context)
-        return nnF.softplus(self.w1) * icnn + nnF.softplus(self.w0) * (x.view(n, -1) ** 2).sum(1, keepdim=True) / 2
+
+        if self.no_identity_term:
+            return icnn
+        else:
+            return nnF.softplus(self.w1) * icnn + nnF.softplus(self.w0) * (x.view(n, -1) ** 2).sum(1, keepdim=True) / 2
 
     def reverse(self, y, max_iter=1000000, lr=1.0, tol=1e-12, x=None, context=None, **kwargs):
         if x is None:
@@ -114,8 +119,10 @@ class DeepConvexFlow(torch.nn.Module):
             return self.forward_transform_stochastic(x, logdet, context=context, extra=extra)
         else:
             return self.forward_transform_bruteforce(x, logdet, context=context)
+        # return self.forward_transform_bruteforce(x, logdet, context=context)
 
     def forward_transform_stochastic(self, x, logdet=0, context=None, extra=None):
+        # print("Using stochastic")
         bsz, *dims = x.shape
         dim = np.prod(dims)
 
@@ -129,7 +136,6 @@ class DeepConvexFlow(torch.nn.Module):
                 # v is (bsz, dim)
                 v = v.reshape(bsz, *dims)
                 hvp = torch.autograd.grad(f, x, v, create_graph=self.training, retain_graph=True)[0]
-
                 HESS_NORM_TRACER.append((torch.norm(hvp) / torch.norm(v)).detach().cpu())
 
                 if not torch.isnan(v).any() and torch.isnan(hvp).any():
@@ -161,6 +167,7 @@ class DeepConvexFlow(torch.nn.Module):
         return f, logdet + est1 if self.training else logdet + est2
 
     def forward_transform_bruteforce(self, x, logdet=0, context=None):
+        # print("Using bruteforce")
         warnings.warn('brute force')
         bsz = x.shape[0]
         input_shape = x.shape[1:]

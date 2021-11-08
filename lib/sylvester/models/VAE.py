@@ -184,6 +184,88 @@ class VAE(nn.Module):
         return x_mean, z_mu, z_var, self.log_det_j, z, z
 
 
+class CPFVAE(VAE):
+    """
+    Variational auto-encoder with convex potential flows in the encoder.
+    """
+
+    def __init__(self, args):
+        super(CPFVAE, self).__init__(args)
+
+        # Initialize log-det-jacobian to zero
+        self.log_det_j = 0.
+
+        # Flow parameters
+        self.num_flows = args.num_flows
+
+        # Amortized flow parameters
+        # TODO: ADD CPFLOW
+        self.log_det_j = 0.
+        self.h_size = args.icnn_dimh
+        self.h_layers = args.num_icnn_layers
+
+        # Flow parameters
+        self.num_flows = args.num_flows
+
+        # PICNN = PICNNAbstractClass.icnns[args.icnn_type]
+        # icnns = [PICNN(self.z_size, self.h_size, self.q_z_nn_output_dim, self.h_layers,
+        #                symm_act_first=args.symm_act_first,
+        #                softplus_type=args.softplus_type,
+        #                zero_softplus=args.zero_softplus
+        # ) for _ in range(self.num_flows)]
+        # layers = [None] * (2 * self.num_flows + 1)
+        # layers[0::2] = [LayerActnorm() for _ in range(self.num_flows + 1)]
+        # layers[1::2] = [DeepConvexFlow(icnn, self.z_size, unbiased=False, rtol=args.rtol, atol=args.atol) for _, icnn in \
+        #                 zip(range(self.num_flows), icnns)]
+
+        PICNN = PICNNAbstractClass.icnns[args.icnn_type]
+        layers = list()
+        for _ in range(self.num_flows):
+            if args.actnorm:
+                layers.append(LayerActnorm())
+            icnn = PICNN(self.z_size, self.h_size, self.q_z_nn_output_dim, self.h_layers,
+                       symm_act_first=args.symm_act_first,
+                       softplus_type=args.softplus_type,
+                       zero_softplus=args.zero_softplus)
+            layers.append(
+                DeepConvexFlow(icnn, self.z_size, unbiased=False, rtol=args.rtol, atol=args.atol)
+            )
+        layers.append(LayerActnorm())  # lazy init
+
+        self.flow = SequentialFlow(layers)
+
+    def encode(self, x):
+        """
+        Encoder that ouputs parameters for base distribution of z and context h for flows.
+        """
+
+        h = self.q_z_nn(x)
+        h = h.view(-1, self.q_z_nn_output_dim)
+        mean_z = self.q_z_mean(h)
+        var_z = self.q_z_var(h)
+
+        return mean_z, var_z, h
+
+    def forward(self, x):
+        """
+        Forward pass with planar flows for the transformation z_0 -> z_1 -> ... -> z_k.
+        Log determinant is computed as log_det_j = N E_q_z0[\sum_k log |det dz_k/dz_k-1| ].
+        """
+
+        # mean and variance of z
+        z_mu, z_var, h_context = self.encode(x)
+        # sample z
+        z_0 = self.reparameterize(z_mu, z_var)
+
+        # CP flows
+        z_k, self.log_det_j = self.flow.forward_transform(z_0, context=h_context)
+
+        # decode
+        x_mean = self.decode(z_k)
+
+        return x_mean, z_mu, z_var, self.log_det_j, z_0, z_k
+
+
 class PlanarVAE(VAE):
     """
     Variational auto-encoder with planar flows in the encoder.
@@ -747,87 +829,6 @@ class IAFVAE(VAE):
 
         # iaf flows
         z_k, self.log_det_j = self.flow(z_0, h_context)
-
-        # decode
-        x_mean = self.decode(z_k)
-
-        return x_mean, z_mu, z_var, self.log_det_j, z_0, z_k
-
-class CPFVAE(VAE):
-    """
-    Variational auto-encoder with convex potential flows in the encoder.
-    """
-
-    def __init__(self, args):
-        super(CPFVAE, self).__init__(args)
-
-        # Initialize log-det-jacobian to zero
-        self.log_det_j = 0.
-
-        # Flow parameters
-        self.num_flows = args.num_flows
-
-        # Amortized flow parameters
-        # TODO: ADD CPFLOW
-        self.log_det_j = 0.
-        self.h_size = args.icnn_dimh
-        self.h_layers = args.num_icnn_layers
-
-        # Flow parameters
-        self.num_flows = args.num_flows
-
-        # PICNN = PICNNAbstractClass.icnns[args.icnn_type]
-        # icnns = [PICNN(self.z_size, self.h_size, self.q_z_nn_output_dim, self.h_layers,
-        #                symm_act_first=args.symm_act_first,
-        #                softplus_type=args.softplus_type,
-        #                zero_softplus=args.zero_softplus
-        # ) for _ in range(self.num_flows)]
-        # layers = [None] * (2 * self.num_flows + 1)
-        # layers[0::2] = [LayerActnorm() for _ in range(self.num_flows + 1)]
-        # layers[1::2] = [DeepConvexFlow(icnn, self.z_size, unbiased=False, rtol=args.rtol, atol=args.atol) for _, icnn in \
-        #                 zip(range(self.num_flows), icnns)]
-
-        PICNN = PICNNAbstractClass.icnns[args.icnn_type]
-        layers = list()
-        for _ in range(self.num_flows):
-            if args.actnorm:
-                layers.append(LayerActnorm())
-            icnn = PICNN(self.z_size, self.h_size, self.q_z_nn_output_dim, self.h_layers,
-                       symm_act_first=args.symm_act_first,
-                       softplus_type=args.softplus_type,
-                       zero_softplus=args.zero_softplus)
-            layers.append(
-                DeepConvexFlow(icnn, self.z_size, unbiased=False, rtol=args.rtol, atol=args.atol)
-            )
-        layers.append(LayerActnorm())  # lazy init
-
-        self.flow = SequentialFlow(layers)
-
-    def encode(self, x):
-        """
-        Encoder that ouputs parameters for base distribution of z and context h for flows.
-        """
-
-        h = self.q_z_nn(x)
-        h = h.view(-1, self.q_z_nn_output_dim)
-        mean_z = self.q_z_mean(h)
-        var_z = self.q_z_var(h)
-
-        return mean_z, var_z, h
-
-    def forward(self, x):
-        """
-        Forward pass with planar flows for the transformation z_0 -> z_1 -> ... -> z_k.
-        Log determinant is computed as log_det_j = N E_q_z0[\sum_k log |det dz_k/dz_k-1| ].
-        """
-
-        # mean and variance of z
-        z_mu, z_var, h_context = self.encode(x)
-        # sample z
-        z_0 = self.reparameterize(z_mu, z_var)
-
-        # CP flows
-        z_k, self.log_det_j = self.flow.forward_transform(z_0, context=h_context)
 
         # decode
         x_mean = self.decode(z_k)

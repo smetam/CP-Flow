@@ -132,7 +132,8 @@ def stochastic_trfA(mvp_fun, v, m):
 # TODO: gradient through this is very unstable.
 # noinspection PyPep8Naming
 def stochastic_quadrature(T, dim, func=torch.log):
-    eigvals, eigvecs = torch.symeig(T, eigenvectors=True)
+    # eigvals, eigvecs = torch.symeig(T, eigenvectors=True)
+    eigvals, eigvecs = torch.linalg.eigh(T, UPLO='U')
 
     with torch.no_grad():
         if eigvals.numel() > torch.unique(eigvals, dim=1).numel():
