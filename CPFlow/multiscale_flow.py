@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from lib.flows import SequentialFlow, ActNorm, SqueezeLayer, Invertible1x1Conv
+from CPFlow.flows import SequentialFlow, ActNorm, SqueezeLayer, Invertible1x1Conv
 
 
 class MultiscaleFlow(nn.Module):

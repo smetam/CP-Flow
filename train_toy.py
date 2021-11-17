@@ -9,13 +9,13 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import torch
-from lib.flows import SequentialFlow, DeepConvexFlow, ActNorm, IAF, InvertibleLinear, NAFDSF
-from lib.icnn import ICNN3
-from lib import distributions
+from CPFlow.flows import SequentialFlow, DeepConvexFlow, ActNorm, IAF, InvertibleLinear, NAFDSF
+from CPFlow.icnn import ICNN3
+from CPFlow import distributions
 from data.toy_data import ToyDataset
 from PIL import Image
 import argparse
-from lib.utils import makedirs
+from CPFlow.utils import makedirs
 
 
 # parsing arguments

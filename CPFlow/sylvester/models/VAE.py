@@ -3,10 +3,10 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-from lib.sylvester.models import flows
-from lib.sylvester.models.layers import GatedConv2d, GatedConvTranspose2d
-from lib.flows import DeepConvexFlow, SequentialFlow, LayerActnorm
-from lib.icnn import PICNNAbstractClass
+from CPFlow.sylvester.models import flows
+from CPFlow.sylvester.models.layers import GatedConv2d, GatedConvTranspose2d
+from CPFlow.flows import DeepConvexFlow, SequentialFlow, LayerActnorm
+from CPFlow.icnn import PICNNAbstractClass
 
 
 class VAE(nn.Module):

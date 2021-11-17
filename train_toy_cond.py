@@ -8,10 +8,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import torch
-from lib.flows import SequentialFlow, DeepConvexFlow, ActNorm
-from lib.icnn import PICNN as PICNN
+from CPFlow.flows import SequentialFlow, DeepConvexFlow, ActNorm
+from CPFlow.icnn import PICNN as PICNN
 from data.toy_data import OneDMixtureOfGaussians as ToyData
-from lib.utils import makedirs
+from CPFlow.utils import makedirs
 
 
 makedirs('figures/toy/cond_MoG/')

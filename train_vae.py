@@ -17,11 +17,11 @@ import random
 import os
 import datetime
 
-from lib.sylvester.models import VAE as VAE
-from lib.sylvester.optimization.training import train, evaluate
-from lib.sylvester.utils.load_data import load_dataset
-from lib.sylvester.utils.plotting import plot_training_curve
-from lib.icnn import PICNNAbstractClass
+from CPFlow.sylvester.models import VAE as VAE
+from CPFlow.sylvester.optimization.training import train, evaluate
+from CPFlow.sylvester.utils.load_data import load_dataset
+from CPFlow.sylvester.utils.plotting import plot_training_curve
+from CPFlow.icnn import PICNNAbstractClass
 torch.set_default_dtype(torch.float64)
 
 
