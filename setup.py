@@ -1,5 +1,5 @@
 from pathlib import Path
-from setuptools import find_packages, find_namespace_packages, setup
+from setuptools import find_packages, setup
 
 ROOT = Path(__file__).parent
 
@@ -15,8 +15,7 @@ setup(
     name="CPFlow",
     version="0.1.0",
     author="CWHuang",
-    package=find_namespace_packages(include=["CPFlow*"], where=str(ROOT)),
-    # packages=find_packages("./CPFlow/flows"),
+    packages=find_packages("./"),
     description="Convex Potential Flow package",
     include_package_data=True,
     install_requires=find_requirements("requirements.txt"),
