@@ -13,7 +13,7 @@ scipy
 seaborn==0.9.1
 six==1.15.0
 subprocess32==3.5.3
-torch==1.10.0+cpu
+torch~=1.9
 torchvision
 tqdm~=4.23
 h5py
